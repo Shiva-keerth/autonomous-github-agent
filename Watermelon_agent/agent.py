@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 import json
 from github import Github,Auth
+import time
+import memory
 
 load_dotenv()
 class PlanStep(BaseModel):
@@ -127,14 +129,53 @@ def execute_plan(plan: Plan) -> dict:
     }
 
 def run_instruction(instruction:str) -> dict:
-    plan = plan_steps_structured(instruction)
-    report = execute_plan(plan)
-    report["instruction"]= instruction
-    return report
+   start_time =time.time()
 
+   past_matches = memory.get_similar_execution(instruction, limit=1)
 
+   reused_plan =False
+   if past_matches:
+       try:
+           plan= Plan(**json.loads(past_matches[0]["plan_json"]))
+           reused_plan = True
+       except Exception:
+           plan =plan_steps_structured(instruction)
+   else:
+       plan= plan_steps_structured(instruction)
+
+   report = execute_plan(plan)
+   report["instruction"] =instruction
+   report["reused_past_plan"] = reused_plan
+   report["planning_llm_call_made"] = not reused_plan
+
+   duration =time.time() - start_time
+
+   for step_result in report["steps"]:
+       memory.record_capability_use(
+           action_name=step_result["action"],
+           success=(step_result["status"] == "success"),
+           error =step_result.get("error")
+       )
+   memory.save_execution(
+       instruction = instruction,
+       plan_json =plan.model_dump_json(),
+       status="success" if report["completed_steps"] == report["total_steps"] else "failed",
+       api_call_count=report["completed_steps"],
+       duration_seconds=duration,
+       error=report["steps"][-1].get("error") if report["steps"] and report["steps"][-1]["status"] == "failed" else None
+   )
+
+   return report
 
 if __name__ == "__main__":
-    test_instruction="Close issue number 1 in Shiva-keerth/OmniMind-AI-Enterprise, then confirm it's closed by getting its details."
-    report = run_instruction(test_instruction)
-    print(json.dumps(report,indent=2))
+    test_instruction = "Get the details of issue number 1 in Shiva-keerth/OmniMind-AI-Enterprise"
+
+    for i in range(1,5):
+        t=time.time()
+        report = run_instruction(test_instruction)
+        elapsed =time.time() -t
+        print(f"Run {i}: {elapsed:.2f}s, reused_past_plan: {report['reused_past_plan']}")
+
+    print("\n=== Capability memory check ===")
+    stats = memory.get_capability_stats("get_issue_details")
+    print(json.dumps(stats, indent=2))
