@@ -35,6 +35,18 @@ def create_tables():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS synthesized_capabilities(
+            capability_name TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            filter_field TEXT NOT NULL,
+            filter_type TEXT NOT NULL,
+            action_to_apply TEXT NOT NULL,
+            times_reused INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -118,6 +130,49 @@ def record_capability_use(action_name:str, success: bool, error: str=None):
     conn.commit()
     conn.close()
 
+def save_synthesized_capability(capability_name: str, description: str, filter_field:str, filter_type: str, action_to_apply: str):
+    conn =get_connection()
+    cursor=conn.cursor()
+
+    cursor.execute("""
+        INSERT OR IGNORE INTO synthesized_capabilities
+        (capability_name, description, filter_field, filter_type,action_to_apply, times_reused, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
+    """, (capability_name, description, filter_field, filter_type, action_to_apply,
+          datetime.now().isoformat()))
+
+    conn.commit()
+    conn.close()
+
+def get_synthesized_capability(capability_name: str) -> dict:
+    conn =get_connection()
+    cursor =conn.cursor()
+
+    cursor.execute("SELECT * FROM synthesized_capabilities WHERE capability_name = ?",(capability_name,))
+    row =cursor.fetchone()
+
+    if row is None:
+        conn.close()
+        return None
+
+    cursor.execute("""
+        UPDATE synthesized_capabilities
+        SET times_reused =times_reused + 1
+        WHERE capability_name =?
+    """, (capability_name,))
+    conn.commit()
+    conn.close()
+
+    return {
+        "capability_name": row[0],
+        "description": row[1],
+        "filter_field": row[2],
+        "filter_type": row[3],
+        "action_to_apply": row[4],
+        "times_reused": row[5],
+        "created_at": row[6]
+    }
+
 def get_capability_stats(action_name: str) -> dict:
     conn =get_connection()
     cursor = conn.cursor()
@@ -139,11 +194,16 @@ def get_capability_stats(action_name: str) -> dict:
     }
 
 if __name__ == "__main__":
-    create_tables()
+    # create_tables()
+    # save_synthesized_capability(
+    #     capability_name="filter_and_close_by_title",
+    #     description="Finds open issues whose title contains a keyword, then closes each one",
+    #     filter_field="title",
+    #     filter_type="contains",
+    #     action_to_apply="close_issue"
+    # )
+    result1 =get_synthesized_capability("filter_and_close_by_title")
+    print(json.dumps(result1, indent=2))
 
-    record_capability_use("close_issue", success=True)
-    record_capability_use("close_issue", success=True)
-    record_capability_use("close_issue", success=False, error="404 Not Found")
-
-    stats = get_capability_stats("close_issue")
-    print(json.dumps(stats, indent=2))
+    result2= get_synthesized_capability(("filter_and_close_by_title"))
+    print(json.dumps(result2,indent=2))
