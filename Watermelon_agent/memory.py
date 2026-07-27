@@ -169,7 +169,7 @@ def get_synthesized_capability(capability_name: str) -> dict:
         "filter_field": row[2],
         "filter_type": row[3],
         "action_to_apply": row[4],
-        "times_reused": row[5],
+        "times_reused": row[5] + 1,
         "created_at": row[6]
     }
 
@@ -194,16 +194,8 @@ def get_capability_stats(action_name: str) -> dict:
     }
 
 if __name__ == "__main__":
-    # create_tables()
-    # save_synthesized_capability(
-    #     capability_name="filter_and_close_by_title",
-    #     description="Finds open issues whose title contains a keyword, then closes each one",
-    #     filter_field="title",
-    #     filter_type="contains",
-    #     action_to_apply="close_issue"
-    # )
     result1 =get_synthesized_capability("filter_and_close_by_title")
-    print(json.dumps(result1, indent=2))
+    print("Call 1:", result1["times_reused"])
 
     result2= get_synthesized_capability(("filter_and_close_by_title"))
-    print(json.dumps(result2,indent=2))
+    print("Call 2:", result2["times_reused"])

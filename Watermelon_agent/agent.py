@@ -166,7 +166,12 @@ def execute_synthesized_capability(request: SynthesisRequest) -> dict:
             action_to_apply=request.action_to_apply
         )
 
-    all_issues = list_open_issues(request.owner, request.repo, limit=50)
+    try:
+        all_issues = list_open_issues(request.owner, request.repo, limit=50)
+        memory.record_capability_use(action_name="list_open_issues", success=True)
+    except Exception as e:
+        memory.record_capability_use(action_name="list_open_issues", success=False, error=str(e))
+        raise
 
     matched=[]
     for issue in all_issues:
@@ -177,13 +182,17 @@ def execute_synthesized_capability(request: SynthesisRequest) -> dict:
     applied_results=[]
     for issue in matched:
         if request.action_to_apply == "close_issue":
-            result =close_issue(request.owner, request.repo, issue["number"])
-            applied_results.append(result)
+           try:
+               result =close_issue(request.owner, request.repo, issue["number"])
+               memory.record_capability_use(action_name="close_issue", success=True)
+               applied_results.append(result)
+           except Exception as e:
+               memory.record_capability_use(action_name="close_issue",success=False, error=str(e))
 
     return{
         "capability_name": request.capability_name,
         "was_reused": was_reused,
-        "total_issues_matched": len(all_issues),
+        "total_issues_checked": len(all_issues),
         "matched_count": len(matched),
         "matched_issues": matched,
         "applied_results": applied_results
@@ -239,13 +248,13 @@ def run_instruction(instruction:str) -> dict:
            instruction=instruction,
            plan_json=synthesis_check.model_dump_json(),
            status="success",
-           api_call_count=synthesis_result["matched_count"] + synthesis_result["total_issues_matched"],
+           api_call_count=synthesis_result["matched_count"] + synthesis_result["total_issues_checked"],
            duration_seconds=duration,
            error=None
        )
 
        return {
-           "instructions": instruction,
+           "instruction": instruction,
            "used_synthesis": True,
            **synthesis_result
        }
@@ -287,12 +296,11 @@ def run_instruction(instruction:str) -> dict:
    return report
 
 if __name__ == "__main__":
-    test1 ="List open issues in Shiva_keerth/OmniMind-AI-Enterprise"
-    result1 =check_needs_synthesis(test1)
-    print("Test 1 (should be false):")
-    print(result1.model_dump_json(indent=2))
+   before = memory.get_capability_stats("close_issue")
+   print("Before:", json.dumps(before, indent=2))
 
-    test2 = "Close all open issues in Shiva-keerth/OmniMind-AI-Enterprise whose title contains the word 'test'"
-    result2 =check_needs_synthesis(test2)
-    print("\nTest 2 (should be true):")
-    print(result2.model_dump_json(indent=2))
+   result = run_instruction("Close all open issues in Shiva-keerth/OmniMind-AI-Enterprise whose title contains the word 'test' ")
+   print(json.dumps(result,indent=2))
+
+   after = memory.get_capability_stats("close_issue")
+   print("After:", json.dumps(after, indent=2))
