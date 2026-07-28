@@ -9,6 +9,8 @@ import time
 import memory
 
 load_dotenv()
+memory.create_tables()
+
 class PlanStep(BaseModel):
     action:str
     owner:str
