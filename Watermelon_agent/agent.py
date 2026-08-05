@@ -9,6 +9,7 @@ import time
 import memory
 
 load_dotenv()
+memory.create_tables()
 class PlanStep(BaseModel):
     action:str
     owner:str
@@ -37,9 +38,9 @@ github_token =os.getenv("GITHUB_TOKEN")
 github_auth =Auth.Token(github_token)
 gh =Github(auth=github_auth)
 
-def list_open_issues(owner: str, repo_name: str, limit: int = 5) -> list:
+def list_open_issues(owner: str, repo_name: str, state: str= "open", limit: int = 20) -> list:
     repo = gh.get_repo(f"{owner}/{repo_name}")
-    issues = repo.get_issues(state="open")
+    issues = repo.get_issues(state=state)
 
     results =[]
     for issue in issues:
@@ -47,7 +48,8 @@ def list_open_issues(owner: str, repo_name: str, limit: int = 5) -> list:
             break
         results.append({
             "number": issue.number,
-            "title": issue.title
+            "title": issue.title,
+            "body": issue.body
         })
     return results
 
@@ -70,12 +72,23 @@ def close_issue(owner: str, repo_name: str, issue_number: int) -> dict:
         "new_state": issue.state
     }
 
+def reopen(owner: str, repo_name: str, issue_number: int) -> dict:
+    repo=gh.get_repo(f"{owner}/{repo_name}")
+    issue=repo.get_issue(number=issue_number)
+    issue.edit(state="open")
+    return{
+        "number": issue.number,
+        "new_state": issue.state,
+        "title": issue.title
+    }
+
 def plan_steps_structured(instruction:str) -> Plan:
     prompt=f"""You are a planning assistant for an AI agent that acts on Github
 using the Github API through python. You only have these actions available:
 -list_open_issues(owner,repo): lists open issues in a repo
 -get_issue_details(owner, repo,issue_number): gets details of one specific issue
 -close_issue(owner, repo, issue_number): closes one specific issue
+-reopen(owner, repo, issue_number): reopens one specific issue
 
 Break the instruction into a sequence of these exact actions only. Respond with
 ONLY valid JSON in this exact format, nothing else, no explanation, no markdown:
@@ -83,7 +96,8 @@ ONLY valid JSON in this exact format, nothing else, no explanation, no markdown:
 {{
   "steps":[
     {{"action": "list_open_issues", "owner": "...", "repo": "..."}},
-    {{"action": "close_issue", "owner": "...", "repo": "...", "issue_number":5}}
+    {{"action": "close_issue", "owner": "...", "repo": "...", "issue_number":5}},
+    {{"action":"reopen","owner":"...","repo":"...","issue_number":5}}
     ]
 }}
 
@@ -107,8 +121,9 @@ def check_needs_synthesis(instruction: str) -> SynthesisRequest:
     - list_open_issues(owner, repo)
     - get_issue_details(owner, repo, issue_number)
     - close_issue(owner, repo, issue_number)
+    - reopen(owner, repo, issue_number)
 
-    These 3 actions already handle owner and repo as normal arguments — needing an owner
+    These 4 actions already handle owner and repo as normal arguments — needing an owner
     or repo does NOT mean synthesis is needed. Synthesis is ONLY needed when the
     instruction requires finding issues that match a CONTENT condition (like a keyword
     inside the title), and then applying a DIFFERENT action to only the matches.
@@ -132,6 +147,20 @@ def check_needs_synthesis(instruction: str) -> SynthesisRequest:
       "filter_value": "bug",
       "action_to_apply": "close_issue",
       "owner": "owner",
+      "repo": "repo"
+    }}
+    
+    Example 4 — DOES need synthesis:
+    Instruction: "Reopen all issues whose title contains 'bug'."
+    Answer:{{
+     "needs_synthesis": true,
+     "capability_name": "reopen_matching_issues",
+     "description": "Reopen all issues whose title contains the word 'bug'.",
+     "filter_field": "title",
+     "filter_type": "contains",
+     "filter_value": "bug",
+     "action_to_apply": "reopen",
+     "owner": "owner",
       "repo": "repo"
     }}
 
@@ -165,9 +194,10 @@ def execute_synthesized_capability(request: SynthesisRequest) -> dict:
             filter_type=request.filter_type,
             action_to_apply=request.action_to_apply
         )
+    fetch_state = "closed" if request.action_to_apply == "reopen" else "open"
 
     try:
-        all_issues = list_open_issues(request.owner, request.repo, limit=50)
+        all_issues = list_open_issues(request.owner, request.repo, state=fetch_state, limit=50)
         memory.record_capability_use(action_name="list_open_issues", success=True)
     except Exception as e:
         memory.record_capability_use(action_name="list_open_issues", success=False, error=str(e))
@@ -188,6 +218,17 @@ def execute_synthesized_capability(request: SynthesisRequest) -> dict:
                applied_results.append(result)
            except Exception as e:
                memory.record_capability_use(action_name="close_issue",success=False, error=str(e))
+
+        elif request.action_to_apply == "reopen":
+            try:
+                result = reopen(request.owner,request.repo,issue["number"])
+                memory.record_capability_use(action_name="reopen",success=True)
+                applied_results.append(result)
+
+            except Exception as e:
+                memory.record_capability_use(action_name="reopen",success=False,error=str(e))
+
+
 
     return{
         "capability_name": request.capability_name,
@@ -211,6 +252,9 @@ def execute_plan(plan: Plan) -> dict:
 
             elif step.action == "close_issue":
                 result =close_issue(step.owner, step.repo, step.issue_number)
+
+            elif step.action == "reopen":
+                result = reopen(step.owner, step.repo, step.issue_number)
 
             else:
                 raise ValueError(f"Unknown action: {step.action}")
@@ -296,11 +340,18 @@ def run_instruction(instruction:str) -> dict:
    return report
 
 if __name__ == "__main__":
-   before = memory.get_capability_stats("close_issue")
-   print("Before:", json.dumps(before, indent=2))
+    print("Watermelon Agent — type an instruction, or 'quit' to exit.\n")
+    while True:
+        instruction = input("Instruction: ").strip()
+        if instruction.lower() in ("quit", "exit"):
+            break
+        if not instruction:
+            continue
 
-   result = run_instruction("Close all open issues in Shiva-keerth/OmniMind-AI-Enterprise whose title contains the word 'test' ")
-   print(json.dumps(result,indent=2))
+        start = time.time()
+        result = run_instruction(instruction)
+        elapsed = time.time() - start
 
-   after = memory.get_capability_stats("close_issue")
-   print("After:", json.dumps(after, indent=2))
+        print(json.dumps(result, indent=2))
+        print(f"Time taken: {elapsed:.2f} seconds\n")
+

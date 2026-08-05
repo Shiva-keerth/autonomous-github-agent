@@ -194,8 +194,14 @@ def get_capability_stats(action_name: str) -> dict:
     }
 
 if __name__ == "__main__":
-    result1 =get_synthesized_capability("filter_and_close_by_title")
-    print("Call 1:", result1["times_reused"])
+    create_tables()
 
-    result2= get_synthesized_capability(("filter_and_close_by_title"))
-    print("Call 2:", result2["times_reused"])
+    save_synthesized_capability(
+        capability_name="filter_and_close_by_title",
+        description="test",
+        filter_field="title",
+        filter_type="contains",
+        action_to_apply="close_issue")
+
+    result1 = get_capability_stats("close_issue")
+    print("Capability Stats:", result1)
