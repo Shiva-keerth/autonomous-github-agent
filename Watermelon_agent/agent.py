@@ -31,7 +31,7 @@ class SynthesisRequest(BaseModel):
     repo: Optional[str] =None
 
 
-llm=ChatGroq(model="llama-3.1-8b-instant",
+llm=ChatGroq(model="openai/gpt-oss-20b",
              api_key=os.getenv("GROQ_API_KEY"),)
 
 github_token =os.getenv("GITHUB_TOKEN")
