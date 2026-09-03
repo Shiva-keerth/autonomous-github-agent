@@ -31,7 +31,7 @@ class SynthesisRequest(BaseModel):
     repo: Optional[str] =None
 
 
-llm=ChatGroq(model="llama-3.1-8b-instant",
+llm=ChatGroq(model="openai/gpt-oss-20b",
              api_key=os.getenv("GROQ_API_KEY"),)
 
 github_token =os.getenv("GITHUB_TOKEN")
@@ -340,7 +340,7 @@ def run_instruction(instruction:str) -> dict:
    return report
 
 if __name__ == "__main__":
-    print("Watermelon Agent — type an instruction, or 'quit' to exit.\n")
+    print("Autonomous GitHub Agent — type an instruction, or 'quit' to exit.\n")
     while True:
         instruction = input("Instruction: ").strip()
         if instruction.lower() in ("quit", "exit"):
